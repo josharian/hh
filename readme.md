@@ -116,3 +116,11 @@ The core special error is `*Error`, which gives total control over the HTTP resp
 Strings created by calling `Error()` on errors in this package are designed for internal logging, and may contain more information than what `Wrap` sends to the client.
 
 Both `Wrap` and `Mux` support integrated errorware, which is a way to log, inspect, and replace errors after the HTTP handler has finished processing.
+
+# License
+
+MIT
+
+# Contributing
+
+Contributions are welcome, but I prioritize my life over open source maintainership. Plan accordingly.

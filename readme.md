@@ -8,7 +8,7 @@ Package hh contains HTTP handler helpers.
 go get github.com/josharian/hh@latest
 ```
 
-Discussion below. But most people just want examples, so...
+Full discussion below. But most people just want examples, so...
 
 # Examples
 
@@ -35,15 +35,15 @@ func (s *HTTPServer) handleThing(w http.ResponseWriter, r *http.Request) error {
     }
     authorized := s.checkAuth(r, thing)
     if !authorized {
-        return hh.S(http.StatusUnauthorized, "no thing for you") // returns 401, with custom text
+        return hh.ErrorText(http.StatusUnauthorized, "no thing for you") // returns 401, with custom text
     }
     if msg := thing.isBroken(); msg != nil {
-        return hh.F(http.StatusServiceUnavailable, "this this is temporarily broken: %v", msg)
+        return hh.Errorf(http.StatusServiceUnavailable, "this this is temporarily broken: %v", msg)
     }
     nextAllowedRequest := ratelimitDelay(r)
     if delay := nextAllowedRequest.Sub(time.Now()); delay > 0 {
         info := map[string]float64{"sleep_sec": delay.Seconds()}
-        return hh.J(http.StatusTooManyRequests, info) // return a 429 with JSON-encoded info
+        return hh.ErrorJSON(http.StatusTooManyRequests, info) // return a 429 with JSON-encoded info
     }
     json.NewEncoder(w).Write(thing)
     return nil
@@ -107,16 +107,14 @@ These are all fundamentally interwoven, which is why they're all lumped together
 
 The adapters are `func Wrap`, which is the core low level adapter, and `type Mux`, which lets you avoid writing out `hh.Wrap` repeatedly, particularly when you're re-using a standard suite of errorware.
 
-The core special error is `*Error`, which gives total control over the HTTP response. There are helpers for the most common uses:
+The core special error interface is `HTTPResponseError`, which gives total control over the HTTP response. There are helpers for the most common uses:
 
-* `E` responds with the default text for the error code.
-* `S` responds with fixed text.
-* `F` responds with fmt.Sprintf-formatted text.
-* `J` responds with JSON-encoded information.
+* `Error` responds with the default text for the error code.
+* `ErrorText` responds with fixed text.
+* `Errorf` responds with fmt.Sprintf-formatted text.
+* `ErrorJSON` responds with JSON-encoded information.
 
 And a set of top level `Err*` errors for the most common errors (as determined by some highly scientific grepping).
-
-`(*Error).Error()` returns text designed for internal logging, not for sending to the client (which is the responsibility of `Wrap`).
 
 Both `Wrap` and `Mux` support integrated errorware, which is a way to log, inspect, and replace errors after the HTTP handler has finished processing.
 

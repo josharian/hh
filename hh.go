@@ -1,6 +1,7 @@
 package hh
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,28 +11,51 @@ import (
 // Error is an error type respected by Wrap.
 // It controls the status code and text of the response.
 type Error struct {
-	StatusCode  int    // the HTTP status code to respond with
-	Text        string // the text to respond with
-	ContentType string // the content type to respond with, if blank, no content type is set
+	StatusCode int    // the HTTP status code to respond with
+	Text       string // the text to respond with
 }
 
-// Error returns the user-visible error message for e.
+// Error returns an internally-facing error message for e.
 func (e *Error) Error() string {
 	return fmt.Sprintf("%d: %v", e.StatusCode, e.Text)
 }
 
-// A JSONError indicates that a Jxxx API was unable to encode its data as JSON.
-// This typically indicates a programmer error.
-// As such, when a *JSONError is returned from Wrap,
-// the client receives an HTTP 500 with default text.
-type JSONError struct {
-	Data any
-	Err  error
+// E returns an HTTP error with status statusCode, with the default status text.
+func E(statusCode int) error {
+	return &Error{StatusCode: statusCode, Text: http.StatusText(statusCode)}
 }
 
-func (e *JSONError) Error() string {
-	return fmt.Sprintf("hh.Jnnn JSON encoding: %v (value: %#v)", e.Err, e.Data)
+// S returns an HTTP error with status statusCode and text s.
+func S(statusCode int, s string) error {
+	return &Error{StatusCode: statusCode, Text: s}
 }
+
+// F returns an HTTP error with status statusCode and Sprintf-formatted text.
+func F(statusCode int, format string, args ...any) error {
+	return &Error{StatusCode: statusCode, Text: fmt.Sprintf(format, args...)}
+}
+
+// J returns an HTTP error with status statusCode, accompanied by data encoded as JSON.
+// If data cannot be JSON-encoded, the response to the client
+// will be an HTTP 500 (Internal Server Error) with default status text.
+// The error will contain details of the encoding failure.
+func J(statusCode int, data any) error {
+	buf, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("hh.J encoding failed: %w (value: %#v)", err, data)
+	}
+	return &Error{StatusCode: statusCode, Text: string(buf)}
+}
+
+var (
+	ErrBadRequest          = E(http.StatusBadRequest)
+	ErrUnauthorized        = E(http.StatusUnauthorized)
+	ErrMethodNotAllowed    = E(http.StatusMethodNotAllowed)
+	ErrNotFound            = E(http.StatusNotFound)
+	ErrTooManyRequests     = E(http.StatusTooManyRequests)
+	ErrInternalServerError = E(http.StatusInternalServerError)
+	ErrServiceUnavailable  = E(http.StatusServiceUnavailable)
+)
 
 // A HandlerFunc is an http.HandlerFunc that returns an error. See Wrap.
 type HandlerFunc func(http.ResponseWriter, *http.Request) error
@@ -40,6 +64,11 @@ type HandlerFunc func(http.ResponseWriter, *http.Request) error
 // All errors returned by h are passed through the errorware, in order.
 // At that point, errors are converted to HTTP 500s (internal server error),
 // unless they are of type *Error, in which case the error specifies the status code and text.
+//
+// Wrap does not buffer output.
+// If you write to the response writer and then return an error,
+// returning the HTTP status code header will fail, and
+// the error text will be sent after the response writer output.
 func Wrap(h HandlerFunc, errorware ...func(*http.Request, error) error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		err := h(w, r)
@@ -53,9 +82,6 @@ func Wrap(h HandlerFunc, errorware ...func(*http.Request, error) error) http.Han
 		if !errors.As(err, &ee) {
 			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
-		}
-		if ee.ContentType != "" {
-			w.Header().Set("Content-Type", ee.ContentType)
 		}
 		w.WriteHeader(ee.StatusCode)
 		io.WriteString(w, ee.Text)
